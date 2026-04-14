@@ -20,15 +20,50 @@ URGENCY_OPTIONS = {
     "Critical (4 weeks)": 4,
 }
 
+DEMO = {
+    "source": "VMware Workspace ONE",
+    "targets": ["Microsoft Intune (Windows)", "Jamf Pro (macOS)"],
+    "device_count": 550,
+    "macos_pct": 60,
+    "team_size": 3,
+    "urgency": "Medium (8 weeks)",
+}
+
+if "demo_loaded" not in st.session_state:
+    st.session_state.demo_loaded = False
+
 st.sidebar.subheader("Environment Inputs")
-source = st.sidebar.selectbox("Source MDM platform", SOURCE_PLATFORMS)
-targets = st.sidebar.multiselect("Target platform(s)", TARGET_PLATFORMS)
-device_count = st.sidebar.number_input("Total device count", min_value=1, value=100)
-macos_pct = st.sidebar.slider("macOS %", 0, 100, 50)
+if st.sidebar.button("Load Life360 Example (550 devices)"):
+    st.session_state.demo_loaded = True
+
+d = st.session_state.demo_loaded
+
+source = st.sidebar.selectbox(
+    "Source MDM platform", SOURCE_PLATFORMS,
+    index=SOURCE_PLATFORMS.index(DEMO["source"]) if d else 0,
+)
+targets = st.sidebar.multiselect(
+    "Target platform(s)", TARGET_PLATFORMS,
+    default=DEMO["targets"] if d else [],
+)
+device_count = st.sidebar.number_input(
+    "Total device count", min_value=1,
+    value=DEMO["device_count"] if d else 100,
+)
+macos_pct = st.sidebar.slider(
+    "macOS %", 0, 100,
+    value=DEMO["macos_pct"] if d else 50,
+)
 windows_pct = 100 - macos_pct
 st.sidebar.caption(f"Windows: {windows_pct}%")
-team_size = st.sidebar.number_input("IT staff for migration", min_value=1, value=3)
-urgency_label = st.sidebar.selectbox("Migration urgency", list(URGENCY_OPTIONS.keys()))
+team_size = st.sidebar.number_input(
+    "IT staff for migration", min_value=1,
+    value=DEMO["team_size"] if d else 3,
+)
+urgency_label = st.sidebar.selectbox(
+    "Migration urgency", list(URGENCY_OPTIONS.keys()),
+    index=list(URGENCY_OPTIONS.keys()).index(DEMO["urgency"]) if d else 0,
+)
 urgency_weeks = URGENCY_OPTIONS[urgency_label]
 
 
