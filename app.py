@@ -195,10 +195,15 @@ def scale_risk(base_risk, devices_per_staff):
 # ── Wave duration scaling by team capacity ────────────────────────────────────
 
 def scaled_wave_weeks(base_weeks, devices_in_wave, team_size):
-    devices_per_staff = devices_in_wave / max(1, team_size)
-    if devices_per_staff > 150:
+    """Scale wave duration based on team capacity — works in both directions."""
+    dps = devices_in_wave / max(1, team_size)
+    if dps < 15:
+        return max(0.5, round(base_weeks * 0.5, 1))
+    elif dps < 30:
+        return max(0.5, base_weeks - 1)
+    elif dps > 150:
         return base_weeks + 2
-    elif devices_per_staff > 75:
+    elif dps > 75:
         return base_weeks + 1
     return base_weeks
 
@@ -263,7 +268,7 @@ def build_phase_table(source, targets, device_count, macos_pct, windows_pct, tea
         phases.append({
             "Phase": "2 — Pilot Group",
             "Scope": scope_label(pilot, "3% — early adopters"),
-            "Duration (wks)": 1,
+            "Duration (wks)": scaled_wave_weeks(1, pilot, team_size),
             "Key Actions": pilot_actions(targets) + " Abbreviated observation window — 2 business days of compliance data required before proceeding.",
             "Risk Level": "Low",
             "Rollback": f"Re-enroll pilot devices in {source}",
@@ -293,18 +298,20 @@ def build_phase_table(source, targets, device_count, macos_pct, windows_pct, tea
             "Rollback": "Keep source MDM licenses active 30 days post-cutover",
         })
 
-    # ── MEDIUM (8 weeks): standard 2-wave structure ───────────────────────────
+    # ── MEDIUM (8 weeks): structure scales with team capacity ─────────────────
     elif urgency_weeks == 8:
-        if is_small:
-            # Small orgs: single wave, no exec split
+        if is_small or devices_per_staff < 25:
+            # Small org or well-staffed large org: single wave, compressed
             pilot = max(3, int(device_count * 0.05))
-            main_wave = device_count - pilot
-            w_main = scaled_wave_weeks(max(2, urgency_weeks - 3), main_wave, team_size)
+            exec_pool = 0 if is_small else max(3, int(device_count * 0.05))
+            main_wave = device_count - pilot - exec_pool
+            w_main = scaled_wave_weeks(2, main_wave, team_size)
+            pilot_weeks = scaled_wave_weeks(1, pilot, team_size)
 
             phases.append({
                 "Phase": "1 — Discovery & Inventory",
-                "Scope": scope_label(device_count),
-                "Duration (wks)": 1,
+                "Scope": os_scope(device_count, macos_pct, windows_pct, targets),
+                "Duration (wks)": scaled_wave_weeks(1, device_count, team_size),
                 "Key Actions": disc_detail,
                 "Risk Level": "Low",
                 "Rollback": "N/A — source MDM unchanged",
@@ -312,21 +319,31 @@ def build_phase_table(source, targets, device_count, macos_pct, windows_pct, tea
             phases.append({
                 "Phase": "2 — Pilot Group",
                 "Scope": scope_label(pilot, "5% sample"),
-                "Duration (wks)": 1,
+                "Duration (wks)": pilot_weeks,
                 "Key Actions": pilot_actions(targets),
                 "Risk Level": "Low",
                 "Rollback": f"Re-enroll pilot devices in {source}",
             })
+            exec_note = " Exec devices handled 1:1 at end of wave." if exec_pool == 0 else ""
             phases.append({
                 "Phase": "3 — Full Migration",
                 "Scope": os_scope(main_wave, macos_pct, windows_pct, targets),
                 "Duration (wks)": w_main,
-                "Key Actions": wave_actions(targets, 1) + " Exec devices handled 1:1 at end of wave.",
+                "Key Actions": wave_actions(targets, 1) + exec_note,
                 "Risk Level": scale_risk("Medium", devices_per_staff),
                 "Rollback": f"Re-enroll in {source}; policies still active",
             })
+            if exec_pool > 0:
+                phases.append({
+                    "Phase": "4 — Executive & Sensitive Devices",
+                    "Scope": scope_label(exec_pool, "5% — VIPs last"),
+                    "Duration (wks)": 0.5,
+                    "Key Actions": "1:1 IT support sessions with white-glove enrollment. Pre-stage device before session. Validate VPN, email, and key app access.",
+                    "Risk Level": scale_risk("High", devices_per_staff),
+                    "Rollback": f"Immediate rollback via {source}; dedicated exec support line active",
+                })
             phases.append({
-                "Phase": "4 — Decommission Source MDM",
+                "Phase": f"{len(phases) + 1} — Decommission Source MDM",
                 "Scope": source,
                 "Duration (wks)": 1,
                 "Key Actions": decom_actions(source),
@@ -334,6 +351,7 @@ def build_phase_table(source, targets, device_count, macos_pct, windows_pct, tea
                 "Rollback": "Keep source MDM licenses active 30 days post-cutover",
             })
         else:
+            # Standard 2-wave structure for larger teams with higher load
             pilot = max(5, int(device_count * 0.05))
             exec_pool = max(5, int(device_count * 0.05))
             wave1 = int(device_count * 0.35)
